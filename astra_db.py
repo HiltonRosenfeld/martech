@@ -28,27 +28,22 @@ class AstraSession:
         # comm_date: Timestamp.
         # comm_date_bucket: Timestamp (rounded to the nearest hour).
         self.insert_communication_stmt = self.session.prepare("INSERT INTO communications (communication_id, comm_date, customer_id, channel, category_group, category, activity_name) VALUES (?, ?, ?, ?, ?, ?, ?)")
-        self.insert_communication_stmt.consistency_level = ConsistencyLevel.ALL
 
         # PROFILECAP
-        self.update_profile_cap_stmt = self.session.prepare("UPDATE profile_cap SET count = count + 1 WHERE customer_id = ? AND channel = ? AND comm_date_bucket = ?")
-        self.update_profile_cap_stmt.consistency_level = ConsistencyLevel.ALL
-        self.get_profile_cap_stmt = self.session.prepare("SELECT sum(count) from profile_cap WHERE customer_id=? and channel=? AND comm_date_bucket > ? AND comm_date_bucket < ?")
+        self.update_profile_cap_stmt = self.session.prepare("INSERT INTO profile_cap (customer_id, channel, comm_date_bucket, communication_id) VALUES (?, ?, ?, ?)")
+        self.get_profile_cap_stmt = self.session.prepare("SELECT * from profile_cap WHERE customer_id=? and channel=? AND comm_date_bucket=?")
 
         # ACTYCAP
-        self.update_acty_cap_stmt = self.session.prepare("UPDATE acty_cap SET count = count + 1 WHERE activity_name = ? AND comm_date_bucket = ?")
-        self.update_acty_cap_stmt.consistency_level = ConsistencyLevel.ALL
-        self.get_acty_cap_stmt = self.session.prepare("SELECT sum(count) from acty_cap WHERE activity_name=? AND comm_date_bucket > ? AND comm_date_bucket < ?")
+        self.update_acty_cap_stmt = self.session.prepare("INSERT INTO acty_cap (activity_name, comm_date_bucket, communication_id) VALUES (?, ?, ?)")
+        self.get_acty_cap_stmt = self.session.prepare("SELECT * from acty_cap WHERE activity_name=? AND comm_date_bucket=?")
 
         # PRTYCAP
-        self.update_prty_cap_stmt = self.session.prepare("UPDATE prty_cap SET count = count + 1 WHERE category_group = ? AND category = ? AND comm_date_bucket = ?")
-        self.update_prty_cap_stmt.consistency_level = ConsistencyLevel.ALL
-        self.get_prty_cap_stmt = self.session.prepare("SELECT sum(count) from prty_cap WHERE category_group = ? AND category = ? AND comm_date_bucket > ? AND comm_date_bucket < ?")
+        self.update_prty_cap_stmt = self.session.prepare("INSERT INTO prty_cap (category_group, category, comm_date_bucket, communication_id) VALUES (?, ?, ?, ?)")
+        self.get_prty_cap_stmt = self.session.prepare("SELECT * from prty_cap WHERE category_group = ? AND category = ? AND comm_date_bucket=?")
 
         # CHANNELCAP
-        self.update_channel_cap_stmt = self.session.prepare("UPDATE channel_cap SET count = count + 1 WHERE channel = ? AND comm_date_bucket = ?")
-        self.update_channel_cap_stmt.consistency_level = ConsistencyLevel.ALL
-        self.get_channel_cap_stmt = self.session.prepare("SELECT sum(count) from channel_cap WHERE channel=? AND comm_date_bucket > ? AND comm_date_bucket < ?")
+        self.update_channel_cap_stmt = self.session.prepare("INSERT INTO channel_cap (channel, comm_date_bucket, communication_id) VALUES (?, ?, ?)")
+        self.get_channel_cap_stmt = self.session.prepare("SELECT * from channel_cap WHERE channel=? AND comm_date_bucket=?")
 
 
     def shutdown(self):
