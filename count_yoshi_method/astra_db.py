@@ -9,7 +9,7 @@ load_dotenv()
 
 ASTRA_DB_APPLICATION_TOKEN = os.getenv("ASTRA_DB_APPLICATION_TOKEN")
 ASTRA_DB_SECURE_BUNDLE_PATH = os.getenv("ASTRA_DB_SECURE_BUNDLE_PATH")
-KEYSPACE = "martech"
+KEYSPACE = "martech_yoshi"
 
 class AstraSession:
     def __init__(self, keyspace=KEYSPACE, secure_bundle_path=ASTRA_DB_SECURE_BUNDLE_PATH, application_token=ASTRA_DB_APPLICATION_TOKEN):
@@ -20,6 +20,10 @@ class AstraSession:
         self.session.set_keyspace(keyspace)
 
 
+    def shutdown(self):
+        self.session.shutdown()
+
+"""
     def prepare_statements(self):
         #
         # Communications Table
@@ -28,6 +32,7 @@ class AstraSession:
         # comm_date: Timestamp.
         # comm_date_bucket: Timestamp (rounded to the nearest hour).
         self.insert_communication_stmt = self.session.prepare("INSERT INTO communications (communication_id, comm_date, customer_id, channel, category_group, category, activity_name) VALUES (?, ?, ?, ?, ?, ?, ?)")
+
 
         # PROFILECAP
         self.update_profile_cap_stmt = self.session.prepare("INSERT INTO profile_cap (customer_id, channel, comm_date_bucket, communication_id) VALUES (?, ?, ?, ?)")
@@ -45,6 +50,4 @@ class AstraSession:
         self.update_channel_cap_stmt = self.session.prepare("INSERT INTO channel_cap (channel, comm_date_bucket, communication_id) VALUES (?, ?, ?)")
         self.get_channel_cap_stmt = self.session.prepare("SELECT * from channel_cap WHERE channel=? AND comm_date_bucket=?")
 
-
-    def shutdown(self):
-        self.session.shutdown()
+"""
