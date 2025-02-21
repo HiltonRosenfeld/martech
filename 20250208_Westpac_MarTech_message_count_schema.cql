@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS comm_by_activity_day (
 -- messages sent for a certain time period. The number of messages sent in a day can be obtained from the
 -- comm_by_activity_day table and used to populate this table.
 --
-CREATE TABLE IF NOT EXISTS comm_by_activity (
+CREATE TABLE IF NOT EXISTS comm_by_activity_week (
     activity_name text,
     comm_date int,
     comm_count int,

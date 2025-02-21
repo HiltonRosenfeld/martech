@@ -12,12 +12,19 @@ class OffsetState:
 
     # Get the stored state values for the comm_by_activity_day
     def get_state(state_name):
+
+        # Check if the file exists
         if not os.path.exists(f"{offset_filename}.json"):
             return(0,0)
         
         with open(f"{offset_filename}.json", 'r') as f:
             state = json.load(f)
 
+        # Check that the state exists
+        if state_name not in state:
+            print(f"State {state_name} not found")
+            return(0,0)
+    
         comm_offset_time = state[state_name]['comm_offset_time']
         comm_offset_count = state[state_name]['comm_offset_count']
 
