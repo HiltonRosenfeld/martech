@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS comm_by_activity_day (
     comm_offset_count int static,
     PRIMARY KEY ((activity_name, comm_date), comm_time)
 ) WITH CLUSTERING ORDER BY (comm_time DESC) AND default_time_to_live = 604800;
+
 --
 -- ## Columns
 --  * activity_name: assumed to be around 10 characters e.g. "mortgage" or "creditcard"
@@ -32,7 +33,7 @@ CREATE TABLE IF NOT EXISTS comm_by_activity_day (
 -- Use the following statement to get the information needed to count the number of messages in a day:
 --
       SELECT comm_time, comm_offset_time, comm_offset_count
-      FROM message_count_by_activity_day
+      FROM comm_by_activity_day
       WHERE activity_name = '<activity>'
           AND comm_date = <today>
           AND comm_time > <offset_time>;
@@ -48,7 +49,7 @@ CREATE TABLE IF NOT EXISTS comm_by_activity_day (
 --
 -- Use the following statement to update the comm_offset_time and comm_offset_count:
 --
-      UPDATE message_count_by_activity_day
+      UPDATE comm_by_activity_day
       SET comm_offset_time = <latest_comm_time>, comm_offset_count = <comm_time_rows_counted>
       WHERE activity_name = '<activity>'
           AND comm_date = <today>;
@@ -109,7 +110,7 @@ CREATE TABLE IF NOT EXISTS comm_by_activity_week (
 -- Use the following statement to get the number of messages sent in a seven-day period:
 --
       SELECT comm_count
-      FROM message_count_by_activity_week
+      FROM comm_by_activity_week
       WHERE activity_name = '<activity>'
           AND comm_date >= <start_date>
           AND comm_date <= <end_date>;
