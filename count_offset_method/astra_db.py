@@ -9,7 +9,7 @@ load_dotenv()
 
 ASTRA_DB_APPLICATION_TOKEN = os.getenv("ASTRA_DB_APPLICATION_TOKEN")
 ASTRA_DB_SECURE_BUNDLE_PATH = os.getenv("ASTRA_DB_SECURE_BUNDLE_PATH")
-KEYSPACE = "martech_offset"
+KEYSPACE = "martech"
 
 class AstraSession:
     def __init__(self, keyspace=KEYSPACE, secure_bundle_path=ASTRA_DB_SECURE_BUNDLE_PATH, application_token=ASTRA_DB_APPLICATION_TOKEN):

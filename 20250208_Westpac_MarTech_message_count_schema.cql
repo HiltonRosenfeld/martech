@@ -1,4 +1,4 @@
--- # Table: comm_by_activity_day
+-- # Table: actycap_day
 --
 -- This table will store the number of messages sent in a day for a given activity.
 --
@@ -7,7 +7,7 @@
 -- id as we just want to count the number of messages in a given time period. To save on space, we store the time the
 -- message was written in a custom format that is smaller than a timestamp.
 --
-CREATE TABLE IF NOT EXISTS comm_by_activity_day (
+CREATE TABLE IF NOT EXISTS actycap_day (
     activity_name text,
     comm_date int,
     comm_time int,
@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS comm_by_activity_day (
 -- Use the following statement to get the information needed to count the number of messages in a day:
 --
       SELECT comm_time, comm_offset_time, comm_offset_count
-      FROM comm_by_activity_day
+      FROM actycap_day
       WHERE activity_name = '<activity>'
           AND comm_date = <today>
           AND comm_time > <offset_time>;
@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS comm_by_activity_day (
 --
 -- Use the following statement to update the comm_offset_time and comm_offset_count:
 --
-      UPDATE comm_by_activity_day
+      UPDATE actycap_day
       SET comm_offset_time = <latest_comm_time>, comm_offset_count = <comm_time_rows_counted>
       WHERE activity_name = '<activity>'
           AND comm_date = <today>;
@@ -80,7 +80,7 @@ CREATE TABLE IF NOT EXISTS comm_by_activity_day (
 
 
 
--- # Table: comm_by_activity_week
+-- # Table: actycap_week
 --
 -- This table will store the number of messages sent on every day in a given year for a given activity.
 --
@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS comm_by_activity_day (
 -- message sent in a day for an activity, we store the total number of messages sent in a day. This significantly
 -- reduces the number of rows stored and the amount of work the application needs to do to get the total number of
 -- messages sent for a certain time period. The number of messages sent in a day can be obtained from the
--- comm_by_activity_day table and used to populate this table.
+-- actycap_day table and used to populate this table.
 --
 CREATE TABLE IF NOT EXISTS comm_by_activity_week (
     activity_name text,
@@ -118,7 +118,7 @@ CREATE TABLE IF NOT EXISTS comm_by_activity_week (
 -- In the above query, the `start_date` and `end_date` can be used to get the number of messages sent in a seven-day
 -- period. The application can then sum the comm_count values to get the total number of messages sent in the given
 -- time period. The same steps can be done for a 30-day period.
--- When a new day is started in the comm_by_activity_day table, the total message count from the previous day will need
+-- When a new day is started in the actycap_day table, the total message count from the previous day will need
 -- to be stored in this table.
 --
 -- ## Storage
