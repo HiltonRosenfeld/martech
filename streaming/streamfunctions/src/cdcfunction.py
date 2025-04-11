@@ -16,21 +16,44 @@ import cassandra.cluster as casscluster
 import cassandra.query as cassquery
 import uuid
 
+from datetime import datetime
+
 ASTRA_DOMAIN = 'astra.datastax.com'
+ASTRA_KEYSPACE = 'martech'
 
 
 ## helpers
 
 keySchemaDict = {
     "type": "record",
-    "name": "communications",
+    "name": "communication_data",
     "fields": [
       {
-        "name": "communication_id",
-        "type": {
-          "type": "string",
-          "logicalType": "uuid"
-        }
+        "name": "comm_id",
+        "type": "string"
+      }
+    ]
+  }
+
+valueSchemaDict = {
+    "type": "record",
+    "name": "communication_data",
+    "fields": [
+      {
+        "name": "activity",
+        "type": [
+          "null",
+          "string"
+        ],
+        "default": None
+      },
+      {
+        "name": "customer_id",
+        "type": [
+          "null",
+          "string"
+        ],
+        "default": None
       },
       {
         "name": "comm_datetime",
@@ -42,38 +65,15 @@ keySchemaDict = {
           }
         ],
         "default": None
-      }
-    ]
-  }
-
-valueSchemaDict = {
-    "type": "record",
-    "name": "communications",
-    "fields": [
+      },
       {
-        "name": "customer_id",
+        "name": "request_date",
         "type": [
           "null",
           {
-            "type": "string",
-            "logicalType": "uuid"
+            "type": "int",
+            "logicalType": "date"
           }
-        ],
-        "default": None
-      },
-      {
-        "name": "activity_name",
-        "type": [
-          "null",
-          "string"
-        ],
-        "default": None
-      },
-      {
-        "name": "category_group",
-        "type": [
-          "null",
-          "string"
         ],
         "default": None
       },
@@ -178,6 +178,72 @@ class ProcessComms(Function):
         )
 
 
+    def should_update_offsets(self, run_count):        
+        last_run_file = '{}/last_run_file.txt'.format(self.base_dir)
+
+        last_run = 0
+
+        # read the last value from the file
+        if ospath.exists(last_run_file):
+            with open(last_run_file, 'r') as fh:
+                last_run = fh.read()
+                if last_run:
+                    last_run = int(last_run)
+        
+        # increment that last_run and write the new value to the file
+        last_run += 1
+        with open(last_run_file, 'w') as fh:
+            fh.write(str(last_run))
+
+        # check if we should update offsets
+        # check if last_run is divisible by 10
+        if (last_run % run_count == 0):
+            return True
+        else:
+            return False
+
+
+    def get_offset_count(self, cap_type, activity, comm_date):
+        # Get the offset count
+        rows = None
+        state_stmt = "SELECT comm_time, comm_offset_count, comm_offset_time FROM actycap_day WHERE activity = %s AND comm_date = %s"
+        rows = self.astra_db_session.db_session.execute(state_stmt, (activity, comm_date))
+        comm_offset_time = 0
+        comm_offset_count = 0
+        if rows and rows[0]["comm_offset_count"]:
+            comm_offset_time = rows[0]["comm_offset_time"] if "comm_offset_time" in rows[0] else 0
+            comm_offset_count = rows[0]["comm_offset_count"] if "comm_offset_count" in rows[0] else 0
+            self.logger.info(f"STATE_COUNT {cap_type}|{activity} - get offset: {comm_offset_time}, {comm_offset_count}")
+        else:
+            self.logger.info(f"STATE_COUNT {cap_type}|{activity} - no offset found")
+
+        return comm_offset_time, comm_offset_count
+    
+
+    def get_row_count(self, cap_type, activity, comm_offset_time):
+        # Set the current day and time buckets
+        date = datetime.now()
+        current_date = int(date.strftime('%Y%m%d')) # bucket by day
+
+        rows = None
+        cap_stmt = "SELECT comm_time, comm_offset_time, comm_offset_count FROM actycap_day WHERE activity = %s AND comm_date = %s AND comm_time > %s"
+        self.logger.info(f"SELECT comm_time, comm_offset_time, comm_offset_count FROM actycap_day WHERE activity = {activity} AND comm_date = {current_date} AND comm_time > {comm_offset_time}")
+        rows = self.astra_db_session.db_session.execute(cap_stmt, [activity, current_date, comm_offset_time ])
+        if not rows:
+            row_count = 0
+            comm_time = 0
+            self.logger.info(f"ROW_COUNT {cap_type}|{activity} - get rows: No rows returned")
+        else:
+            #comm_offset_time = rows[0]["comm_offset_time"] if "comm_offset_time" in rows[0] else 0
+            #comm_offset_count = rows[0]["comm_offset_count"] if "comm_offset_count" in rows[0] else 0
+            comm_time = rows[0]["comm_time"] if "comm_time" in rows[0] else 0
+            row_count = sum(1 for _ in rows)  # Count rows
+            self.logger.info(f"ROW_COUNT {cap_type}|{activity} - get rows: {row_count}")
+        
+        return row_count, comm_time
+
+
+
     def process(self, msgBody, context):
         self.setup(context)
 
@@ -186,15 +252,15 @@ class ProcessComms(Function):
 
         #
         # parse the message
-        comm_id = uuid.UUID(msgDict['communication_id'])
+        comm_id = msgDict['comm_id']
         comm_datetime = msgDict['comm_datetime']
-        comm_activity = msgDict['activity_name']
+        comm_request_date = msgDict['request_date']
+        comm_activity = msgDict['activity']
         comm_category = msgDict['category']
-        comm_category_group = msgDict['category_group']
         comm_channel = msgDict['channel']
-        comm_customer_id = uuid.UUID(msgDict['customer_id'])
+        comm_customer_id = msgDict['customer_id']
 
-        self.logger.info(f"Parsed message: {comm_id}, {comm_datetime}, {comm_activity}, {comm_category}, {comm_category_group}, {comm_channel}, {comm_customer_id}")
+        self.logger.info(f"Parsed message: {comm_id}, {comm_datetime}, {comm_request_date}, {comm_activity}, {comm_category}, {comm_channel}, {comm_customer_id}")
 
         # format date and time
         comm_date = int(comm_datetime.strftime('%Y%m%d')) # format date as YYYYMMDD
@@ -203,65 +269,78 @@ class ProcessComms(Function):
         comm_day = int(comm_datetime.strftime('%d')) # format day as DD
 
         #
-        # CHANNELCAP
-        # Prepare Statement
-        channel_cap_stmt = self.astra_db_session.db_session.prepare("INSERT INTO channelcap_day (channel, comm_date, comm_time) VALUES (?, ?, ?)")
-        # Execute Statement
-        self.astra_db_session.db_session.execute(channel_cap_stmt, (comm_channel, comm_date, comm_time))
+        # Define EVENTS BY DAY statement
+        #
+        events_by_day_stmt = "INSERT INTO events_by_day (cap_date, cap_type, cap_action) VALUES (%s, %s, %s)"
 
         #
         # ACTIVITYCAP
-        # Prepare Statement
-        activity_cap_stmt = self.astra_db_session.db_session.prepare("INSERT INTO actycap_day (activity, comm_date, comm_time) VALUES (?, ?, ?)")
-        # Execute Statement
+        activity_cap_stmt = "INSERT INTO actycap_day (activity, comm_date, comm_time) VALUES (%s, %s, %s)"
         self.astra_db_session.db_session.execute(activity_cap_stmt, (comm_activity, comm_date, comm_time))
+        # update the events_by_day table
+        self.astra_db_session.db_session.execute(events_by_day_stmt, (comm_date, 'activity', comm_activity))
+
+        #
+        # CHANNELCAP
+        channel_cap_stmt = "INSERT INTO channelcap_day (channel, comm_date, comm_time) VALUES (%s, %s, %s)"
+        self.astra_db_session.db_session.execute(channel_cap_stmt, (comm_channel, comm_date, comm_time))
+        # update the events_by_day table
+        self.astra_db_session.db_session.execute(events_by_day_stmt, (comm_date, 'channel', comm_channel))
 
         #
         # PRTYCAP
-        # Prepare Statement
-        party_cap_stmt = self.astra_db_session.db_session.prepare("INSERT INTO prtycap_day (category_group, category, comm_date, comm_time) VALUES (?, ?, ?, ?)")
-        # Execute Statement
-        self.astra_db_session.db_session.execute(party_cap_stmt, (comm_category_group, comm_category, comm_date, comm_time))
+        prty_cap_stmt = "INSERT INTO prtycap_day (category_group, category, comm_date, comm_time) VALUES (%s, %s, %s, %s)"
+        self.astra_db_session.db_session.execute(prty_cap_stmt, ("group", comm_category, comm_date, comm_time))
+        # update the events_by_day table
+        self.astra_db_session.db_session.execute(events_by_day_stmt, (comm_date, 'priority', comm_category))
 
         #
         # PROFILECAP
-        # Prepare Statement
-        profile_cap_stmt = self.astra_db_session.db_session.prepare("INSERT INTO profilecap_month (customer_id, channel, comm_month, comm_day, communication_id) VALUES (?, ?, ?, ?, ?)")
-        # Execute Statement
+        profile_cap_stmt = "INSERT INTO profilecap_month (customer_id, channel, comm_month, comm_day, communication_id) VALUES (%s, %s, %s, %s, %s)"
         self.astra_db_session.db_session.execute(profile_cap_stmt, (comm_customer_id, comm_channel, comm_month, comm_day, comm_id))
         
 
         #
-        # insert the message into the Astra DB
-        """
-        insert_statement = CQL_STATEMENT_TEMPLATES['insert'].format(
-            self.astra_db_keyspace,
-            self.astra_db_table,
-            'id, amount, account_id, type, date, description',
-            '%s, %s, %s, %s, %s, %s'
-        )
+        # Update Offests
+        if self.should_update_offsets(10): # update every 10 messages
+            
+            # ACTIVITY
+            cap_type = 'activity'
+            # Todo: change this to iterate through all the Cap Types
+            
+            # Iterate through each activity
+            for activity in ['credit_card', 'mortgage', 'business', 'retail', 'investment']:
+            # Todo: change this to read the set of activities from the events_by_day table
 
-        self.astra_db_session.db_session.execute(
-            insert_statement, 
-            (msgId, msgAmount, msgAccountId, msgType, msgDate, msgDescription)
-            #(msgId, msgAmount, msgAccountId, msgType, msgDate, msgDescription, customer_name, account_name)
-            )
-        """
+                # Get the offset count
+                (comm_offset_time, comm_offset_count) = self.get_offset_count(cap_type, activity, comm_date)
+            
+                # Get the count of rows since last offset
+                (row_count, comm_time) = self.get_row_count(cap_type, activity, comm_offset_time)
+
+                # Total count = offset_count + rows since last offset
+                total_comm_count = comm_offset_count + row_count
+                self.logger.info(f"COUNT {cap_type}|{activity} - Total Count: {total_comm_count},  Row Count: {row_count}, Offset Count: {comm_offset_count}")
+
+                if (row_count > 0):
+                  self.logger.info(f"UPDATE OFFSET {cap_type}|{activity}")
+
+                  # Update the offset_count in the cap table
+                  update_acty_cap_stmt = "UPDATE actycap_day SET comm_offset_time = %s, comm_offset_count = %s WHERE activity = %s AND comm_date = %s"
+                  self.astra_db_session.db_session.execute(update_acty_cap_stmt, (comm_time, total_comm_count, activity, comm_date))
+                
 
         return comm_id
     
 
 
+    
+
 
 
 ###
-### DATABASE SECTION
+### DATABASE CLASS
 ###
-
-CQL_STATEMENT_TEMPLATES = {
-    'select': 'SELECT {} FROM {}.{}',
-    'insert': 'INSERT INTO {}.{} ({}) VALUES ({})'
-}
 
 class AstraDatabaseSession:
     cassname_regex_pattern = re.compile(r'\(.*\)')
@@ -297,7 +376,7 @@ class AstraDatabaseSession:
             protocol_version=4
         )
         self.db_session = self.db_cluster.connect()
-        self.db_session.set_keyspace('martech')
+        self.db_session.set_keyspace(ASTRA_KEYSPACE)
         self.db_session.row_factory = cassquery.dict_factory
 
 
