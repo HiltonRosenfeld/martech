@@ -16,7 +16,7 @@ import cassandra.cluster as casscluster
 import cassandra.query as cassquery
 import uuid
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 ASTRA_DOMAIN = 'astra.datastax.com'
 ASTRA_KEYSPACE = 'martech'
@@ -120,7 +120,168 @@ def cdcMessageToDictPF(pk, body, keyReader, valueReader):
         **bytesToReadDict(encodedBody, valueReader),
     }
 
+# 
+# CLASS to count daily totals
+#
+class DailyTotals(Function):
+    
+    def __init__(self):
+        
+        # Astra DB
+        self.logger = None
 
+        self.astra_streaming_output_topic_url = ''
+
+        self.astra_db_id = ''
+        self.astra_db_region = ''
+        self.astra_db_session_type = ''
+        self.astra_db_session = None
+        self.astra_db_keyspace = ''
+        self.astra_db_table = ''
+        self.astra_db_venues_query_columns = []
+        self.astra_db_venues_query_type = ''
+        self.astra_db_token_file = ''
+        self.astra_db_token = ''
+        self.astra_db_scb_file = ''
+
+        self.astra_api_get_scb_download_link_url = ''
+        self.astra_api_headers = {}
+
+        self.astra_db_query_base_url = ''
+        self.astra_db_query_headers = {}
+        self.astra_db_query_params = {}
+        self.astra_db_query_page_size = 0
+
+        self.min_venue_result = 0
+        self.base_dir = ''
+
+
+    def setup(self, context):
+        self.logger = context.get_logger()
+
+        #self.astra_streaming_output_topic_url = 'persistent://{}'.format(context.get_output_topic())
+        self.base_dir = '{}/streamfunctions'.format(context.user_code_dir)
+
+        self.astra_db_token = context.get_user_config_value('astra_db_token')
+        self.astra_db_id = context.get_user_config_value('astra_db_id')
+
+        self.astra_db_keyspace = 'martech'
+
+        self.astra_db_session = AstraDatabaseSession(
+            db_token=self.astra_db_token,
+            db_domain=ASTRA_DOMAIN,
+            db_id=self.astra_db_id,
+            db_keyspace=self.astra_db_keyspace,
+            base_dir=self.base_dir,
+            logger=self.logger
+        )
+
+    def update_acty_cap(self, current_date):
+        # Activity count
+        # Iterate through each activity
+        # Todo: change this to read the set of activities from the events_by_day table
+        for activity in ['credit_card', 'mortgage', 'business', 'retail', 'investment']:
+
+            query_stmt = "SELECT comm_time, comm_offset_time, comm_offset_count FROM actycap_day WHERE activity = %s AND comm_date = %s"
+            rows = self.astra_db_session.db_session.execute(query_stmt, (activity, current_date))
+        
+            if not rows:
+                row_count = 0
+                self.logger.info(f"Daily Totals - Activity: {activity} Row Count: no rows returned")
+                continue
+            else:
+                row_count = sum(1 for _ in rows)  # Count rows
+                self.logger.info(f"Daily Totals - Activity: {activity} Row Count: {row_count}")
+
+            # Insert summary data for the day
+            insert_stmt = "INSERT INTO actycap_week (activity, comm_date, comm_count) VALUES (%s, %s, %s)"
+            self.astra_db_session.db_session.execute(insert_stmt, (activity, current_date, row_count))
+
+    def update_channel_cap(self, current_date):
+        # Channel count
+        # Iterate through each channel
+        # Todo: change this to read the set of channels from the events_by_day table
+        query_stmt = "SELECT cap_action FROM events_by_day WHERE cap_type = %s AND cap_date = %s"
+        rows = self.astra_db_session.db_session.execute(query_stmt, ('channel', current_date))
+        if not rows:
+            channel_list = ['email', 'sms', 'push', 'in-app', 'direct']
+        else:
+            channel_list = []
+            for row in rows:
+                c = rows[0]["cap_action"] if "cap_action" in rows[0] else 0
+                channel_list.append(c)
+
+        for channel in channel_list:
+            query_stmt = "SELECT comm_time, comm_offset_time, comm_offset_count FROM channelcap_day WHERE channel = %s AND comm_date = %s"
+            rows = self.astra_db_session.db_session.execute(query_stmt, (channel, current_date))
+        
+            if not rows:
+                row_count = 0
+                self.logger.info(f"Daily Totals - Channel: {channel} Row Count: no rows returned")
+                continue
+            else:
+                row_count = sum(1 for _ in rows)  # Count rows
+                self.logger.info(f"Daily Totals - Channel: {channel} Row Count: {row_count}")
+
+            # Insert summary data for the day
+            insert_stmt = "INSERT INTO channelcap_week (channel, comm_date, comm_count) VALUES (%s, %s, %s)"
+            self.astra_db_session.db_session.execute(insert_stmt, (channel, current_date, row_count))
+
+    def update_priority_cap(self, current_date):
+        # Priority count
+        # Iterate through each category
+        # Todo: change this to read the set of categorys from the events_by_day table
+        for category in ['ctgy_1', 'ctgy_2', 'ctgy_3', 'ctgy_4', 'ctgy_5']:
+
+            query_stmt = "SELECT comm_time, comm_offset_time, comm_offset_count FROM prtycap_day WHERE category_group = 'group' AND category = %s AND comm_date = %s"
+            rows = self.astra_db_session.db_session.execute(query_stmt, (category, current_date))
+        
+            if not rows:
+                row_count = 0
+                self.logger.info(f"Daily Totals - Category: {category} Row Count: no rows returned")
+                continue
+            else:
+                row_count = sum(1 for _ in rows)  # Count rows
+                self.logger.info(f"Daily Totals - Category: {category} Row Count: {row_count}")
+
+            # Insert summary data for the day
+            insert_stmt = "INSERT INTO prtycap_week (category_group, category, comm_date, comm_count) VALUES ('group', %s, %s, %s)"
+            self.astra_db_session.db_session.execute(insert_stmt, (category, current_date, row_count))
+
+
+    def process(self, msgBody, context):
+        self.setup(context)
+
+        # Read the message body to get the date to process
+        if isinstance(msgBody, bytes):
+            message = input.decode('utf-8')
+        else:
+            message = str(msgBody)
+
+        # Set the current day and time bucket based on today's date
+        date = datetime.now(timezone.utc)
+        current_date = int(date.strftime('%Y%m%d'))
+        
+        # if the event message is in the format "YYYYMMDD", then set current_date to message content
+        if len(message) == 8 and message.isdigit():
+            current_date = int(message)
+        
+        self.logger.info(f"Daily Totals - trigger received for {current_date}")
+
+        # ACTY
+        self.update_acty_cap(current_date)
+        # CHANNEL
+        self.update_channel_cap(current_date)
+        # PRTY
+        self.update_priority_cap(current_date)
+
+
+
+
+
+# 
+# CLASS to process each communication message
+#
 class ProcessComms(Function):
 
     def __init__(self):
@@ -208,6 +369,7 @@ class ProcessComms(Function):
         rows = None
         state_stmt = "SELECT comm_time, comm_offset_count, comm_offset_time FROM actycap_day WHERE activity = %s AND comm_date = %s"
         rows = self.astra_db_session.db_session.execute(state_stmt, (activity, comm_date))
+            # Todo: use getone() function to select only the first row.
         comm_offset_time = 0
         comm_offset_count = 0
         if rows and rows[0]["comm_offset_count"]:
@@ -222,7 +384,7 @@ class ProcessComms(Function):
 
     def get_row_count(self, cap_type, activity, comm_offset_time):
         # Set the current day and time buckets
-        date = datetime.now()
+        date = datetime.now(timezone.utc)
         current_date = int(date.strftime('%Y%m%d')) # bucket by day
 
         rows = None
