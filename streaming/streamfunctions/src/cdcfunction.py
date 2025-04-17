@@ -339,7 +339,7 @@ class ProcessComms(Function):
         )
 
 
-    def should_update_offsets(self, run_count):        
+    def should_update_offsets(self, run_count):
         last_run_file = '{}/last_run_file.txt'.format(self.base_dir)
 
         last_run = 0
@@ -358,6 +358,7 @@ class ProcessComms(Function):
 
         # check if we should update offsets
         # check if last_run is divisible by 10
+        # Todo: adapt the logic to be dynamic based on how many communications are recorded per minute
         if (last_run % run_count == 0):
             return True
         else:
@@ -491,7 +492,7 @@ class ProcessComms(Function):
                   update_acty_cap_stmt = "UPDATE actycap_day SET comm_offset_time = %s, comm_offset_count = %s WHERE activity = %s AND comm_date = %s"
                   self.astra_db_session.db_session.execute(update_acty_cap_stmt, (comm_time, total_comm_count, activity, comm_date))
                 
-
+        
         return comm_id
     
 
